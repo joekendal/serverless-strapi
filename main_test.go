@@ -24,8 +24,7 @@ func TestProvisioning(t *testing.T) {
 	assert.Equal(t, 1, service.DesiredCount, "DesiredCount expected to be 1")
 	assert.Equal(t, 60, service.HealthCheckGracePeriodSeconds)
 
-	// accepts :80
-	assert.Equal(t, 80, service.LoadBalancers[0].ContainerPort, "LoadBalancer expected to be on port 80")
+	assert.Equal(t, 1337, service.LoadBalancers[0].ContainerPort, "LoadBalancer expected to be on port 80")
 }
 
 func TestSecurityGroups(t *testing.T) {
@@ -47,8 +46,8 @@ func TestTask(t *testing.T) {
 	// includes mount point
 	assert.Equal(t, "/srv/app", container.MountPoints[0].ContainerPath)
 
-	// maps to port 80
-	assert.Equal(t, 80, container.PortMappings[0].ContainerPort)
+	// maps to port 1337
+	assert.Equal(t, 1337, container.PortMappings[0].ContainerPort)
 
 	// contains creds
 	for _, secret := range container.Secrets {

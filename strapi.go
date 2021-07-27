@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/awsecs"
 	ecspatterns "github.com/aws/aws-cdk-go/awscdk/awsecspatterns"
 	"github.com/aws/aws-cdk-go/awscdk/awsefs"
+	"github.com/aws/aws-cdk-go/awscdk/awselasticloadbalancingv2"
 	"github.com/aws/aws-cdk-go/awscdk/awsrds"
 	"github.com/aws/constructs-go/constructs/v3"
 	"github.com/aws/jsii-runtime-go"
@@ -45,9 +46,15 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 	)
 
 	// create docker image
-	image := awsecrassets.NewDockerImageAsset(stack, jsii.String("StrapiImage"),
+	strapi := awsecrassets.NewDockerImageAsset(stack, jsii.String("StrapiImage"),
 		&awsecrassets.DockerImageAssetProps{
 			Directory: jsii.String("./strapi"),
+		},
+	)
+
+	nginx := awsecrassets.NewDockerImageAsset(stack, jsii.String("NginxImage"),
+		&awsecrassets.DockerImageAssetProps{
+			Directory: jsii.String("./nginx"),
 		},
 	)
 
@@ -61,7 +68,7 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 			Scaling: &awsrds.ServerlessScalingOptions{
 				AutoPause: awscdk.Duration_Hours(jsii.Number(0)),
 			},
-			DeletionProtection: jsii.Bool(true),
+			DeletionProtection: jsii.Bool(false),
 			BackupRetention:    awscdk.Duration_Days(jsii.Number(7)),
 			RemovalPolicy:      awscdk.RemovalPolicy_SNAPSHOT,
 			Vpc:                vpc,
@@ -95,11 +102,9 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 	)
 
 	// add container to task definition
-	container := task.AddContainer(jsii.String("StrapiContainer"),
+	strapiContainer := task.AddContainer(jsii.String("StrapiContainer"),
 		&awsecs.ContainerDefinitionOptions{
-			Image: awsecs.ContainerImage_FromEcrRepository(
-				image.Repository(), jsii.String("latest"),
-			),
+			Image: awsecs.ContainerImage_FromDockerImageAsset(strapi),
 			Environment: &map[string]*string{
 				"DATABASE_HOST": db.ClusterEndpoint().Hostname(),
 			},
@@ -107,17 +112,28 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 				"DATABASE_USERNAME": awsecs.Secret_FromSecretsManager(db.Secret(), jsii.String("username")),
 				"DATABASE_PASSWORD": awsecs.Secret_FromSecretsManager(db.Secret(), jsii.String("password")),
 			},
-		},
-	)
-	// port forward
-	container.AddPortMappings(
-		&awsecs.PortMapping{
-			ContainerPort: jsii.Number(80),
+			PortMappings: &[]*awsecs.PortMapping{
+				{ContainerPort: jsii.Number(1337)},
+			},
 		},
 	)
 	// strapi mount point = /srv/app
-	container.AddMountPoints(&awsecs.MountPoint{
+	strapiContainer.AddMountPoints(&awsecs.MountPoint{
 		ReadOnly:      jsii.Bool(false),
+		ContainerPath: jsii.String("/srv/app"),
+		SourceVolume:  strapiVolume.Name,
+	})
+
+	nginxContainer := task.AddContainer(jsii.String("NginxContainer"),
+		&awsecs.ContainerDefinitionOptions{
+			Image: awsecs.AssetImage_FromDockerImageAsset(nginx),
+			PortMappings: &[]*awsecs.PortMapping{
+				{ContainerPort: jsii.Number(80)},
+			},
+		},
+	)
+	nginxContainer.AddMountPoints(&awsecs.MountPoint{
+		ReadOnly:      jsii.Bool(true),
 		ContainerPath: jsii.String("/srv/app"),
 		SourceVolume:  strapiVolume.Name,
 	})
@@ -126,15 +142,17 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 	fargate := ecspatterns.NewApplicationLoadBalancedFargateService(stack, jsii.String("StrapiService"),
 		&ecspatterns.ApplicationLoadBalancedFargateServiceProps{
 			// TODO: Domain
-			TaskDefinition: task,
-			Vpc:            vpc,
+			TaskDefinition:     task,
+			Vpc:                vpc,
+			ListenerPort:       jsii.Number(80),
+			TargetProtocol:     awselasticloadbalancingv2.ApplicationProtocol_HTTP,
+			PublicLoadBalancer: jsii.Bool(true),
 		},
 	)
 
 	// allow strapi
 	db.Connections().AllowDefaultPortFrom(fargate.Service(), jsii.String("Allows Strapi to access Aurora"))
 	efs.Connections().AllowDefaultPortFrom(fargate.Service(), jsii.String("Allows Strapi to access EFS"))
-	image.Repository().GrantPull(fargate.TaskDefinition().ExecutionRole().GrantPrincipal())
 
 	awscdk.NewCfnOutput(stack, jsii.String("LoadBalancerDnsName"), &awscdk.CfnOutputProps{
 		Value: fargate.LoadBalancer().LoadBalancerDnsName(),
