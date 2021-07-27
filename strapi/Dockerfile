@@ -1,0 +1,6 @@
+FROM strapi/strapi
+
+ENV DATABASE_CLIENT=postgres
+ENV DATABASE_NAME=strapi
+ENV DATABASE_PORT=5432
+
