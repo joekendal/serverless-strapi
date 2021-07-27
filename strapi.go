@@ -134,6 +134,7 @@ func NewStrapiStack(scope constructs.Construct, id string, props *StrapiStackPro
 	// allow strapi
 	db.Connections().AllowDefaultPortFrom(fargate.Service(), jsii.String("Allows Strapi to access Aurora"))
 	efs.Connections().AllowDefaultPortFrom(fargate.Service(), jsii.String("Allows Strapi to access EFS"))
+	image.Repository().GrantPull(fargate.TaskDefinition().ExecutionRole().GrantPrincipal())
 
 	awscdk.NewCfnOutput(stack, jsii.String("LoadBalancerDnsName"), &awscdk.CfnOutputProps{
 		Value: fargate.LoadBalancer().LoadBalancerDnsName(),

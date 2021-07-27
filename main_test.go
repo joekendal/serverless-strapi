@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-cdk-go/awscdk"
@@ -10,7 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func testProvisioning(t *testing.T, template *cloudformation.Template) {
+var (
+	template *cloudformation.Template
+)
+
+func TestProvisioning(t *testing.T) {
 	service, err := template.GetECSServiceWithName("StrapiServiceC5D46785")
 	if err != nil {
 		log.Fatalf("Could not get Fargate service: %s", err)
@@ -23,7 +28,7 @@ func testProvisioning(t *testing.T, template *cloudformation.Template) {
 	assert.Equal(t, 80, service.LoadBalancers[0].ContainerPort, "LoadBalancer expected to be on port 80")
 }
 
-func testSecurityGroups(t *testing.T, template *cloudformation.Template) {
+func TestSecurityGroups(t *testing.T) {
 	sg, _ := template.GetEC2SecurityGroupWithName("StrapiServiceSecurityGroup6B02743C")
 	// allows outbound
 	assert.Equal(t, "0.0.0.0/0", sg.SecurityGroupEgress[0].CidrIp, "SecurityGroup Egress expected 0.0.0.0/0")
@@ -35,7 +40,7 @@ func testSecurityGroups(t *testing.T, template *cloudformation.Template) {
 	assert.Equal(t, "0.0.0.0/0", sg.SecurityGroupIngress[0].CidrIp)
 }
 
-func testTask(t *testing.T, template *cloudformation.Template) {
+func TestTask(t *testing.T) {
 	task, _ := template.GetECSTaskDefinitionWithName("StrapiDefinition74B6E401")
 	container := task.ContainerDefinitions[0]
 
@@ -55,32 +60,14 @@ func testTask(t *testing.T, template *cloudformation.Template) {
 	assert.Equal(t, target.FileSystemId, task.Volumes[0].EFSVolumeConfiguration.FilesystemId)
 }
 
-func TestStrapiStack(t *testing.T) {
+func TestMain(m *testing.M) {
 	app := awscdk.NewApp(nil)
-
 	stack := NewStrapiStack(app, "TestStack", nil)
 
 	// load cfn template
 	artifact := app.Synth(nil).GetStackArtifact(stack.ArtifactId())
 	templatePath := artifact.TemplateFullPath()
-	template, err := goformation.Open(*templatePath)
-	if err != nil {
-		log.Fatalf("There was an error processing the template: %s", err)
-	}
+	template, _ = goformation.Open(*templatePath)
 
-	templateTests := []struct {
-		name string
-		test func(t *testing.T, template *cloudformation.Template)
-	}{
-		{"Service provisioning", testProvisioning},
-		{"Security groups", testSecurityGroups},
-		{"Task definition", testTask},
-	}
-
-	for _, tc := range templateTests {
-		t.Run(tc.name, func(t *testing.T) {
-			tc.test(t, template)
-		})
-	}
-
+	os.Exit(m.Run())
 }
